@@ -80,6 +80,8 @@ def parse_jobs(url: str) -> Tuple[int, int]:
 
         exist_count = 0
         new_count = 0
+        update_rows = []
+        insert_rows = []
 
         # Store in database
         with db_connect() as conn:
@@ -92,26 +94,29 @@ def parse_jobs(url: str) -> Tuple[int, int]:
                     continue
                 cursor.execute("SELECT 1 FROM jobs WHERE hn_id = ?", (hn_id,))
                 if cursor.fetchone():
-                    full_text = f"{html.unescape(comment)}"
+                    exist_count += 1
+                    full_text = html.unescape(comment)
                     embedding = model.encode(full_text)
                     embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
-                    exist_count += 1
-                    cursor.execute(
-                        "UPDATE jobs SET job_text = ?, embedding = ? WHERE hn_id = ?",
-                        (comment, embedding_blob, hn_id),
-                    )
+                    update_rows.append((comment, embedding_blob, hn_id))
                 else:
                     new_count += 1
-                    full_text = f"{html.unescape(comment)}"
+                    full_text = html.unescape(comment)
                     embedding = model.encode(full_text)
                     embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
-                    cursor.execute(
-                        """
-                        INSERT INTO jobs (hn_id, hn_user, job_text, inserted_at, embedding)
-                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
-                        """,
-                        (hn_id, hn_user, comment, embedding_blob),
-                    )
+                    insert_rows.append((hn_id, hn_user, comment, embedding_blob))
+            if update_rows:
+                cursor.executemany(
+                    "UPDATE jobs SET job_text = ?, embedding = ? WHERE hn_id = ?", update_rows
+                )
+            if insert_rows:
+                cursor.executemany(
+                    """
+                    INSERT INTO jobs (hn_id, hn_user, job_text, inserted_at, embedding)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
+                    """,
+                    insert_rows
+                )
             conn.commit()
 
         logging.info("Existing jobs: %d, New jobs added: %d", exist_count, new_count)
