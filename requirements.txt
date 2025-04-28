@@ -1,0 +1,10 @@
+fastapi==0.115.*
+pydantic==2.9.*
+uvicorn==0.34.*
+beautifulsoup4==4.13.*
+requests==2.32.*
+html2text==2025.4.*
+cacheout==0.16.*
+markdown==3.8
+numpy==2.2.*
+sentence_transformers==4.1.*
