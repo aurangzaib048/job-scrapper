@@ -21,6 +21,18 @@ class SearchForm(BaseModel):
     search: str = Field(json_schema_extra={"placeholder": "Search..."})
 
 
+@app.get("/health", response_class=HTMLResponse)
+async def healthcheck():
+    return HTMLResponse(content="""
+      <html>
+        <head><title>Health Check</title></head>
+        <body>
+          <h1>OK</h1>
+        </body>
+      </html>
+      """)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def users_table(
     request: Request,
