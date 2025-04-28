@@ -64,57 +64,64 @@ def parse_jobs(url: str) -> Tuple[int, int]:
     Fetch job postings from a Hacker News page and store them in the database.
     Returns a tuple of (existing_count, new_count).
     """
-    if not is_hacker_news_url(url):
-        logging.error("Invalid Hacker News URL: %s", url)
+    try:
+        if not is_hacker_news_url(url):
+            logging.error("Invalid Hacker News URL: %s", url)
+            return 0, 0
+
+        # Backup and initialize database
+        backup_db_file()
+        db_init()
+
+        # Fetch and parse the page
+        session = requests.Session()
+        page_content = load_url(url, session)
+        soup = BeautifulSoup(page_content, "html.parser")
+
+        exist_count = 0
+        new_count = 0
+
+        # Store in database
+        with db_connect() as conn:
+            cursor = conn.cursor()
+            for item in get_all_comments(soup):
+                if is_reply(item):
+                    continue
+                comment, hn_user, hn_id = parse_from_comment(item)
+                if not hn_id:
+                    continue
+                cursor.execute("SELECT 1 FROM jobs WHERE hn_id = ?", (hn_id,))
+                if cursor.fetchone():
+                    full_text = f"{html.unescape(comment)}"
+                    embedding = model.encode(full_text)
+                    embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
+                    exist_count += 1
+                    cursor.execute(
+                        "UPDATE jobs SET job_text = ?, embedding = ? WHERE hn_id = ?",
+                        (comment, embedding_blob, hn_id),
+                    )
+                else:
+                    new_count += 1
+                    full_text = f"{html.unescape(comment)}"
+                    embedding = model.encode(full_text)
+                    embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
+                    cursor.execute(
+                        """
+                        INSERT INTO jobs (hn_id, hn_user, job_text, inserted_at, embedding)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
+                        """,
+                        (hn_id, hn_user, comment, embedding_blob),
+                    )
+            conn.commit()
+
+        logging.info("Existing jobs: %d, New jobs added: %d", exist_count, new_count)
+        return exist_count, new_count
+    except requests.RequestException as e:
+        logging.error("Network error fetching URL %s: %s", url, e)
         return 0, 0
-
-    # Backup and initialize database
-    backup_db_file()
-    db_init()
-
-    # Fetch and parse the page
-    session = requests.Session()
-    page_content = load_url(url, session)
-    soup = BeautifulSoup(page_content, "html.parser")
-
-    exist_count = 0
-    new_count = 0
-
-    # Store in database
-    with db_connect() as conn:
-        cursor = conn.cursor()
-        for item in get_all_comments(soup):
-            if is_reply(item):
-                continue
-            comment, hn_user, hn_id = parse_from_comment(item)
-            if not hn_id:
-                continue
-            cursor.execute("SELECT 1 FROM jobs WHERE hn_id = ?", (hn_id,))
-            if cursor.fetchone():
-                full_text = f"{html.unescape(comment)}"
-                embedding = model.encode(full_text)
-                embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
-                exist_count += 1
-                cursor.execute(
-                    "UPDATE jobs SET job_text = ?, embedding = ? WHERE hn_id = ?",
-                    (comment, embedding_blob, hn_id),
-                )
-            else:
-                new_count += 1
-                full_text = f"{html.unescape(comment)}"
-                embedding = model.encode(full_text)
-                embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
-                cursor.execute(
-                    """
-                    INSERT INTO jobs (hn_id, hn_user, job_text, inserted_at, embedding)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
-                    """,
-                    (hn_id, hn_user, comment, embedding_blob),
-                )
-        conn.commit()
-
-    logging.info("Existing jobs: %d, New jobs added: %d", exist_count, new_count)
-    return exist_count, new_count
+    except Exception as e:
+        logging.error("Unexpected error in parse_jobs: %s", e, exc_info=True)
+        return 0, 0
 
 
 def main():
