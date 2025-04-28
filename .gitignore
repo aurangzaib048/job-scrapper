@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+./data/backups
+./data/hn_jobs.*
+
+.idea
+
 # C extensions
 *.so
 
